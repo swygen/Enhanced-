@@ -2,21 +2,30 @@ import os, io, datetime, requests
 from PIL import Image, ImageEnhance
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters
-from rembg import remove
 from keep_alive import keep_alive
+
+# Optional rembg import
+try:
+    from rembg import remove
+    REMBG_AVAILABLE = True
+except ImportError:
+    REMBG_AVAILABLE = False
 
 # === CONFIG ===
 BOT_TOKEN = "7410660233:AAGZPtovYR7kd1Nm0n1_bpNERZ7mJ56hYzs"
-GROUP_ID = -1002572781690  # Replace with your group ID
-REMOVE_BG_API_KEY = "jzesLG1RQJkZ2k2i3SZvDdhM"  # Optional (fallback to rembg if empty)
+GROUP_ID = -1002572781690
+REMOVE_BG_API_KEY = "jzesLG1RQJkZ2k2i3SZvDdhM"
 user_usage = {}
 
 # === START HANDLER ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    member = await context.bot.get_chat_member(GROUP_ID, user.id)
+    try:
+        member = await context.bot.get_chat_member(GROUP_ID, user.id)
+    except:
+        member = None
 
-    if member.status not in ["member", "administrator", "creator"]:
+    if not member or member.status not in ["member", "administrator", "creator"]:
         await update.message.reply_text("দয়া করে আমাদের গ্রুপে যোগ দিন:\nhttps://t.me/swygenbd")
         return
 
@@ -24,7 +33,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Upload Image", callback_data="upload_image")],
         [InlineKeyboardButton("Developer Info", url="https://t.me/Swygen_bd")]
     ]
-    await update.message.reply_text(f"স্বাগতম {user.first_name}! নীচের অপশনগুলো ব্যবহার করুন:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(
+        f"স্বাগতম {user.first_name}! নীচের অপশনগুলো ব্যবহার করুন:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 # === CALLBACK BUTTON HANDLER ===
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -34,8 +46,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "upload_image":
         context.user_data["awaiting_image"] = True
         await query.message.reply_text("ছবিটি পাঠান, এরপর আপনাকে অপশন দেওয়া হবে।")
+        return
 
-    elif query.data in ["enhance", "remove_bg", "hd_quality"]:
+    if query.data in ["enhance", "remove_bg", "hd_quality"]:
         file = context.user_data.get("image_file")
         if not file:
             await query.message.reply_text("ছবি পাওয়া যায়নি, অনুগ্রহ করে আবার চেষ্টা করুন।")
@@ -57,8 +70,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     headers={"X-Api-Key": REMOVE_BG_API_KEY},
                 )
                 result = Image.open(io.BytesIO(response.content))
-            else:
+            elif REMBG_AVAILABLE:
                 result = remove(image)
+            else:
+                await query.message.reply_text("rembg ইনস্টল করা নেই বা remove.bg API Key পাওয়া যায়নি।")
+                return
 
         elif query.data == "hd_quality":
             response = requests.post(
@@ -74,8 +90,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result.save(output_io, format='PNG')
         output_io.seek(0)
 
-        keyboard = InlineKeyboardButton("Feedback দিন", url="https://t.me/Swygen_bd")
-        await query.message.reply_photo(photo=output_io, caption="আপনার ছবি তৈরি!\n\nসার্ভিস কেমন ছিল জানান ভুলবেন না!", reply_markup=InlineKeyboardMarkup(keyboard))
+        feedback_btn = [[InlineKeyboardButton("Feedback দিন", url="https://t.me/Swygen_bd")]]
+        await query.message.reply_photo(
+            photo=output_io,
+            caption="আপনার ছবি তৈরি!",
+            reply_markup=InlineKeyboardMarkup(feedback_btn)
+        )
 
 # === PHOTO RECEIVER ===
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
